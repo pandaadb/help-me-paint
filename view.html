@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Artist's Reference & Color Picker</title>
+    <style>
+        /* Global Reset & Layout */
+        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #121212; color: #ffffff; }
+        .app-container { display: flex; height: 100vh; width: 100vw; overflow: hidden; }
+        
+        /* Left Panel */
+        .left-panel { width: 70%; display: flex; justify-content: center; align-items: center; background-color: #1e1e1e; border-right: 1px solid #333; position: relative; padding: 20px; box-sizing: border-box; overflow: hidden; }
+        canvas { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); cursor: grab; }
+        canvas:active { cursor: grabbing; }
+        canvas.picker-active { cursor: crosshair; }
+        canvas.picker-active:active { cursor: crosshair; }
+        .empty-state { position: absolute; color: #666; font-size: 1.2rem; pointer-events: none; }
+
+        /* Right Panel */
+        .right-panel { width: 30%; display: flex; flex-direction: column; padding: 20px; box-sizing: border-box; background-color: #252526; overflow-y: auto; }
+        
+        /* Gallery */
+        .thumbnail-container { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+        .thumbnail { width: 120px; height: 120px; object-fit: cover; cursor: pointer; border: 3px solid transparent; border-radius: 6px; transition: border-color 0.2s ease; background-color: #000; }
+        .thumbnail.active { border-color: #007acc; }
+
+        /* Tools */
+        .tools-container { display: flex; flex-direction: column; gap: 15px; padding-bottom: 20px; }
+        input[type="file"] { display: none; }
+        
+        .btn { padding: 12px; background-color: #333; color: white; border: 1px solid #444; border-radius: 4px; cursor: pointer; font-size: 14px; transition: all 0.2s; text-align: center; font-weight: 500;}
+        .btn:hover { background-color: #444; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn.primary { background-color: #007acc; border-color: #007acc; }
+        .btn.active-tool { background-color: #28a745; border-color: #28a745; }
+        .btn.small { padding: 8px; font-size: 12px; }
+
+        /* Control Boxes */
+        .control-box { display: flex; flex-direction: column; gap: 10px; background: #1e1e1e; padding: 12px; border-radius: 6px; border: 1px solid #333; }
+        .row { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+        .row input[type="number"] { width: 60px; padding: 5px; background: #333; color: white; border: 1px solid #555; border-radius: 4px; }
+        .row input[type="range"] { flex-grow: 1; }
+        label { font-size: 14px; cursor: pointer; }
+        .sub-text { font-size: 12px; color: #aaa; }
+
+        /* Color Display */
+        .color-panel { width: 100%; height: 60px; background-color: #000; border-radius: 6px; border: 2px solid #333; box-sizing: border-box; transition: background-color 0.1s; }
+        .rgb-panel { display: flex; width: 100%; gap: 8px; }
+        .rgb-box { flex: 1; background-color: #1e1e1e; padding: 10px 0; text-align: center; border-radius: 6px; font-weight: bold; font-family: monospace; font-size: 14px; border: 1px solid #333; }
+        
+        /* Mixing Advice Box */
+        .mixing-box { background-color: #1a1a1a; border-left: 4px solid #007acc; padding: 12px; border-radius: 0 4px 4px 0; font-size: 13.5px; line-height: 1.5; color: #ddd; min-height: 60px;}
+        
+        /* Custom Palette */
+        .palette-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+        .palette-swatch { width: 36px; height: 36px; border-radius: 4px; border: 1px solid #555; cursor: pointer; transition: transform 0.1s, border-color 0.1s; box-sizing: border-box; }
+        .palette-swatch:hover { transform: scale(1.1); border-color: #fff; }
+        
+        .section-label { font-size: 0.85rem; text-transform: uppercase; color: #aaa; margin-bottom: 5px; letter-spacing: 1px; margin-top: 10px; border-bottom: 1px solid #444; padding-bottom: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <div class="left-panel">
+        <div id="emptyState" class="empty-state">No image uploaded</div>
+        <canvas id="mainCanvas"></canvas>
+    </div>
+
+    <div class="right-panel">
+        <div class="section-label">Gallery</div>
+        <div class="thumbnail-container" id="thumbnailContainer"></div>
+        <label for="imageUpload" class="btn primary">Upload Image</label>
+        <input type="file" id="imageUpload" accept="image/*">
+
+        <div class="tools-container">
+            <div class="section-label">Organic Base Painting</div>
+            <div class="control-box">
+                <div class="row">
+                    <label>Abstraction Level: <span id="blobSliderDisplay">5</span></label>
+                </div>
+                <div class="row">
+                    <input type="range" id="blobSlider" min="2" max="15" value="5">
+                </div>
+                <div class="row" style="margin-top: 5px;">
+                    <button id="generateBlockedBtn" class="btn primary" style="flex: 1;">Generate Blobs</button>
+                    <button id="toggleBlockedBtn" class="btn" style="flex: 1;" disabled>View Original</button>
+                </div>
+            </div>
+
+            <div class="section-label">View & Grid</div>
+            <div class="control-box">
+                <div class="row">
+                    <div>
+                        <input type="checkbox" id="gridCheckbox">
+                        <label for="gridCheckbox">Draw Grid</label>
+                    </div>
+                    <input type="number" id="gridCount" value="10" min="1">
+                </div>
+                <hr style="width: 100%; border: 0; border-top: 1px solid #333; margin: 5px 0;">
+                <div class="row">
+                    <span class="sub-text">Scroll: Zoom | Drag: Pan</span>
+                    <button id="resetViewBtn" class="btn small">Reset View</button>
+                </div>
+            </div>
+
+            <div class="section-label">Color Extraction & Mixing</div>
+            <button id="colorPickerBtn" class="btn">Enable Color Picker</button>
+            <div id="colorDisplay" class="color-panel"></div>
+            <div class="rgb-panel">
+                <div class="rgb-box" id="rVal">R: 0</div>
+                <div class="rgb-box" id="gVal">G: 0</div>
+                <div class="rgb-box" id="bVal">B: 0</div>
+            </div>
+            
+            <div class="section-label" style="border:none; margin-top: 5px;">Pigment Suggestion</div>
+            <div id="mixingAdvice" class="mixing-box">
+                Click a pixel on the image to get traditional mixing advice based on color temperature and saturation.
+            </div>
+
+            <div class="section-label">Custom Palette</div>
+            <button id="saveColorBtn" class="btn small" disabled>Save Current Color</button>
+            <span class="sub-text" style="margin-top:-5px;">Click a swatch to load it. Double-click to remove.</span>
+            <div id="paletteContainer" class="palette-container"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // App State
+    let images = [];
+    let activeImageIndex = -1;
+    let isColorPickerActive = false;
+    let currentImageObj = null; 
+    let currentExtractedColor = null; 
+
+    // Base Painting State
+    let blockedCanvasObj = null; 
+    let showBlocked = false;
+
+    // View Transformation State
+    let scale = 1, offsetX = 0, offsetY = 0;
+    let isDragging = false, dragStartX = 0, dragStartY = 0, hasMoved = false;
+
+    // DOM Elements
+    const fileInput = document.getElementById('imageUpload');
+    const thumbnailContainer = document.getElementById('thumbnailContainer');
+    const canvas = document.getElementById('mainCanvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const emptyState = document.getElementById('emptyState');
+    
+    const gridCheckbox = document.getElementById('gridCheckbox'), gridCount = document.getElementById('gridCount'), resetViewBtn = document.getElementById('resetViewBtn');
+    const blobSlider = document.getElementById('blobSlider'), blobSliderDisplay = document.getElementById('blobSliderDisplay');
+    const generateBlockedBtn = document.getElementById('generateBlockedBtn'), toggleBlockedBtn = document.getElementById('toggleBlockedBtn');
+
+    const colorPickerBtn = document.getElementById('colorPickerBtn'), colorDisplay = document.getElementById('colorDisplay');
+    const rVal = document.getElementById('rVal'), gVal = document.getElementById('gVal'), bVal = document.getElementById('bVal');
+    const mixingAdvice = document.getElementById('mixingAdvice');
+    
+    const saveColorBtn = document.getElementById('saveColorBtn');
+    const paletteContainer = document.getElementById('paletteContainer');
+
+    // Init
+    function init() { loadImages(); setupEventListeners(); }
+
+    function loadImages() {
+        const stored = localStorage.getItem('savedImages');
+        if (stored) {
+            try { images = JSON.parse(stored); if (images.length > 0) { renderThumbnails(); setActiveImage(0); } } 
+            catch (e) { console.error("Parse failed"); }
+        }
+    }
+    function saveImages() { try { localStorage.setItem('savedImages', JSON.stringify(images)); } catch (e) { alert("Storage Quota Exceeded."); } }
+
+    function renderThumbnails() {
+        thumbnailContainer.innerHTML = '';
+        images.forEach((imgSrc, index) => {
+            const imgEl = document.createElement('img');
+            imgEl.src = imgSrc; imgEl.className = 'thumbnail';
+            if (index === activeImageIndex) imgEl.classList.add('active');
+            imgEl.onclick = () => setActiveImage(index);
+            thumbnailContainer.appendChild(imgEl);
+        });
+    }
+
+    function setActiveImage(index) {
+        if (index < 0 || index >= images.length) return;
+        activeImageIndex = index;
+        emptyState.style.display = 'none';
+        
+        blockedCanvasObj = null; showBlocked = false;
+        toggleBlockedBtn.disabled = true; toggleBlockedBtn.textContent = 'View Original'; toggleBlockedBtn.classList.remove('primary');
+
+        document.querySelectorAll('.thumbnail').forEach((t, i) => t.classList.toggle('active', i === index));
+
+        const img = new Image();
+        img.onload = function() {
+            currentImageObj = img; canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+            resetView(); 
+        };
+        img.src = images[index];
+    }
+
+    // --- TRUE MODE ORGANIC BLOB PAINTING LOGIC ---
+    function generateOrganicBlobs() {
+        if (!currentImageObj) return;
+
+        const level = parseInt(blobSlider.value, 10);
+        const width = currentImageObj.naturalWidth;
+        const height = currentImageObj.naturalHeight;
+        
+        // 1. Setup processing canvases
+        blockedCanvasObj = document.createElement('canvas');
+        blockedCanvasObj.width = width;
+        blockedCanvasObj.height = height;
+        const bCtx = blockedCanvasObj.getContext('2d', { willReadFrequently: true });
+        
+        const tempOrigCanvas = document.createElement('canvas');
+        tempOrigCanvas.width = width;
+        tempOrigCanvas.height = height;
+        const oCtx = tempOrigCanvas.getContext('2d', { willReadFrequently: true });
+
+        // 2. Draw true original image
+        oCtx.drawImage(currentImageObj, 0, 0);
+        const oData = oCtx.getImageData(0, 0, width, height).data;
+
+        // 3. Draw blurred map to define shapes
+        bCtx.filter = `blur(${level * 2}px)`;
+        bCtx.drawImage(currentImageObj, 0, 0);
+        bCtx.filter = 'none';
+        const blurredImgData = bCtx.getImageData(0, 0, width, height);
+        const bData = blurredImgData.data;
+
+        // Variables for calculating shapes
+        const colorLevels = Math.max(3, 15 - level); 
+        const factor = 255 / (colorLevels - 1);
+        const clusters = new Map();
+
+        // Pass 1: For every blob shape, tally up the True Original colors inside it
+        for (let i = 0; i < bData.length; i += 4) {
+            // Define shape ID based on the blurred layout
+            const qR = Math.round((bData[i] / 255) * (colorLevels - 1)) * factor;     
+            const qG = Math.round((bData[i + 1] / 255) * (colorLevels - 1)) * factor; 
+            const qB = Math.round((bData[i + 2] / 255) * (colorLevels - 1)) * factor; 
+            const qKey = `${qR},${qG},${qB}`;
+
+            // Fetch true color from original image
+            const trueR = oData[i];
+            const trueG = oData[i+1];
+            const trueB = oData[i+2];
+            
+            // Slightly bin true colors to group noisy pixels together (finds the truest bulk color)
+            const binSize = 8;
+            const binR = Math.round(trueR / binSize) * binSize;
+            const binG = Math.round(trueG / binSize) * binSize;
+            const binB = Math.round(trueB / binSize) * binSize;
+            const trueKey = `${binR},${binG},${binB}`;
+
+            let cluster = clusters.get(qKey);
+            if (!cluster) {
+                cluster = { maxCount: 0, modeColor: [trueR, trueG, trueB], counts: new Map() };
+                clusters.set(qKey, cluster);
+            }
+
+            let count = (cluster.counts.get(trueKey) || 0) + 1;
+            cluster.counts.set(trueKey, count);
+
+            // If this true color is the most common in this shape so far, set it as the Mode!
+            if (count > cluster.maxCount) {
+                cluster.maxCount = count;
+                cluster.modeColor = [binR, binG, binB]; 
+            }
+        }
+
+        // Pass 2: Paint the canvas! Fill each shape with its most dominant True color
+        for (let i = 0; i < bData.length; i += 4) {
+            const qR = Math.round((bData[i] / 255) * (colorLevels - 1)) * factor;     
+            const qG = Math.round((bData[i + 1] / 255) * (colorLevels - 1)) * factor; 
+            const qB = Math.round((bData[i + 2] / 255) * (colorLevels - 1)) * factor; 
+            const qKey = `${qR},${qG},${qB}`;
+
+            const modeColor = clusters.get(qKey).modeColor;
+
+            bData[i] = modeColor[0];     // R
+            bData[i+1] = modeColor[1];   // G
+            bData[i+2] = modeColor[2];   // B
+            bData[i+3] = 255;            // Alpha
+        }
+        
+        bCtx.putImageData(blurredImgData, 0, 0);
+        
+        showBlocked = true;
+        toggleBlockedBtn.disabled = false;
+        toggleBlockedBtn.textContent = 'View Original';
+        toggleBlockedBtn.classList.add('primary');
+        renderCanvas();
+    }
+
+    // --- COLOR MIXING LOGIC ---
+    function rgbToHsl(r, g, b) {
+        r /= 255; g /= 255; b /= 255;
+        let max = Math.max(r, g, b), min = Math.min(r, g, b);
+        let h, s, l = (max + min) / 2;
+
+        if (max === min) { h = s = 0; } 
+        else {
+            let d = max - min;
+            s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+            switch (max) {
+                case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                case g: h = (b - r) / d + 2; break;
+                case b: h = (r - g) / d + 4; break;
+            }
+            h /= 6;
+        }
+        return [h * 360, s * 100, l * 100];
+    }
+
+    function generateMixingAdvice(r, g, b) {
+        const [h, s, l] = rgbToHsl(r, g, b);
+        let advice = "";
+        let colorName = "";
+        
+        if (s < 10 && l > 15 && l < 85) {
+            return "This is a neutral gray. Mix your primary colors (Red, Yellow, Blue) in equal parts to get a lively gray, rather than using black and white.";
+        }
+
+        if (h >= 345 || h < 15) colorName = "Red";
+        else if (h >= 15 && h < 45) colorName = "Orange/Brown";
+        else if (h >= 45 && h < 75) colorName = "Yellow";
+        else if (h >= 75 && h < 160) colorName = "Green";
+        else if (h >= 160 && h < 260) colorName = "Blue";
+        else if (h >= 260 && h < 290) colorName = "Purple";
+        else if (h >= 290 && h < 345) colorName = "Pink/Magenta";
+
+        if (l < 25) {
+            advice += `This is a very dark ${colorName}. `;
+            if (colorName === "Green") advice += "Darken with a touch of Alizarin Crimson (its complement) or Burnt Umber instead of black to keep the foliage looking alive. ";
+            else if (colorName === "Red") advice += "Darken with Ultramarine Blue or a dark green. ";
+            else if (colorName === "Blue") advice += "Base of Ultramarine or Prussian Blue. Add a hint of Burnt Umber to push it darker without deadening it. ";
+            else advice += "Avoid pure black; try mixing Burnt Umber and Ultramarine Blue for a rich dark base. ";
+        } 
+        else if (l > 75) {
+            advice += `This is a light, tinted ${colorName}. `;
+            if (colorName === "Green") advice += "To achieve this, mix your green with a bright Yellow (like Lemon Yellow). **Do not use white**, as it will make the green look chalky and muted. ";
+            else if (colorName === "Orange/Brown") advice += "Lighten with yellow or a touch of Titanium White if you want a pastel tone. ";
+            else if (colorName === "Yellow") advice += "Use pure Cadmium or Lemon Yellow. Add a tiny speck of white only for the brightest highlight. ";
+            else advice += "Add Titanium White to your base hue to reach this tint. ";
+        } 
+        else {
+            advice += `This is a mid-tone ${colorName}. `;
+            if (colorName === "Green") advice += "Mix a Cadmium Yellow with a touch of Cerulean or Cobalt blue. ";
+            else if (colorName === "Orange/Brown") advice += "Base of Burnt Sienna or mix Cadmium Red and Yellow. ";
+            else if (colorName === "Purple") advice += "Mix Alizarin Crimson (a cool red) with Ultramarine (a warm blue) for the cleanest purple. ";
+        }
+
+        if (s < 35 && colorName !== "Gray") advice += " It is heavily muted. Knock back the intensity by adding a tiny bit of its complementary color, or a raw earth tone like Yellow Ochre.";
+        else if (s > 75) advice += " It is highly saturated. Use your paints pure straight from the tube; avoid adding earth tones or white.";
+
+        return advice;
+    }
+
+    function updateColorDisplay(r, g, b) {
+        currentExtractedColor = { r, g, b };
+        colorDisplay.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
+        rVal.textContent = `R: ${r}`; gVal.textContent = `G: ${g}`; bVal.textContent = `B: ${b}`;
+        mixingAdvice.innerHTML = generateMixingAdvice(r, g, b);
+        saveColorBtn.disabled = false;
+    }
+
+    // --- CANVAS RENDERING ---
+    function resetView() { scale = 1; offsetX = 0; offsetY = 0; renderCanvas(); }
+
+    function renderCanvas() {
+        if (!currentImageObj) return;
+
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        ctx.translate(offsetX, offsetY);
+        ctx.scale(scale, scale);
+
+        if (showBlocked && blockedCanvasObj) ctx.drawImage(blockedCanvasObj, 0, 0);
+        else ctx.drawImage(currentImageObj, 0, 0);
+
+        if (gridCheckbox.checked) {
+            const nSquares = parseInt(gridCount.value, 10) || 10;
+            if (nSquares <= 0) return;
+
+            const smallerSide = Math.min(canvas.width, canvas.height);
+            const step = smallerSide / nSquares;
+
+            ctx.beginPath(); ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)'; ctx.lineWidth = Math.max(1, canvas.width / 1500) / scale; 
+            for (let x = step; x < canvas.width; x += step) { ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); }
+            for (let y = step; y < canvas.height; y += step) { ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); }
+            ctx.stroke();
+
+            ctx.beginPath(); ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+            for (let x = step; x < canvas.width; x += step) { ctx.moveTo(x + (1/scale), 0); ctx.lineTo(x + (1/scale), canvas.height); }
+            for (let y = step; y < canvas.height; y += step) { ctx.moveTo(0, y + (1/scale)); ctx.lineTo(canvas.width, y + (1/scale)); }
+            ctx.stroke();
+        }
+    }
+
+    // --- EVENT LISTENERS ---
+    function setupEventListeners() {
+        blobSlider.addEventListener('input', (e) => blobSliderDisplay.textContent = e.target.value);
+        generateBlockedBtn.addEventListener('click', generateOrganicBlobs);
+        
+        toggleBlockedBtn.addEventListener('click', () => {
+            showBlocked = !showBlocked;
+            toggleBlockedBtn.textContent = showBlocked ? 'View Original' : 'View Blobs';
+            renderCanvas();
+        });
+
+        gridCheckbox.addEventListener('change', () => renderCanvas());
+        gridCount.addEventListener('input', () => renderCanvas());
+        resetViewBtn.addEventListener('click', () => resetView());
+
+        // Palette Listeners
+        saveColorBtn.addEventListener('click', () => {
+            if (!currentExtractedColor) return;
+            const { r, g, b } = currentExtractedColor;
+            
+            const swatch = document.createElement('div');
+            swatch.className = 'palette-swatch';
+            swatch.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
+            swatch.title = `RGB(${r}, ${g}, ${b})`;
+            
+            swatch.addEventListener('click', () => updateColorDisplay(r, g, b));
+            swatch.addEventListener('dblclick', () => swatch.remove());
+
+            paletteContainer.appendChild(swatch);
+        });
+
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                images.push(event.target.result); saveImages(); renderThumbnails(); setActiveImage(images.length - 1);
+            };
+            reader.readAsDataURL(file); fileInput.value = ''; 
+        });
+
+        colorPickerBtn.addEventListener('click', function() {
+            isColorPickerActive = !isColorPickerActive;
+            if (isColorPickerActive) {
+                colorPickerBtn.textContent = 'Disable Color Picker'; colorPickerBtn.classList.add('active-tool'); canvas.classList.add('picker-active');
+            } else {
+                colorPickerBtn.textContent = 'Enable Color Picker'; colorPickerBtn.classList.remove('active-tool'); canvas.classList.remove('picker-active');
+            }
+        });
+
+        canvas.addEventListener('wheel', function(e) {
+            if (!currentImageObj) return; e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const mouseY = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+            const zoomFactor = Math.exp((e.deltaY < 0 ? 1 : -1) * 0.1);
+            const newScale = scale * zoomFactor;
+            
+            offsetX = mouseX - (mouseX - offsetX) * (newScale / scale);
+            offsetY = mouseY - (mouseY - offsetY) * (newScale / scale);
+            scale = newScale; renderCanvas();
+        });
+
+        canvas.addEventListener('mousedown', function(e) {
+            isDragging = true; hasMoved = false;
+            const rect = canvas.getBoundingClientRect();
+            dragStartX = ((e.clientX - rect.left) * (canvas.width / rect.width)) - offsetX;
+            dragStartY = ((e.clientY - rect.top) * (canvas.height / rect.height)) - offsetY;
+        });
+
+        canvas.addEventListener('mousemove', function(e) {
+            if (!isDragging) return; hasMoved = true;
+            const rect = canvas.getBoundingClientRect();
+            offsetX = ((e.clientX - rect.left) * (canvas.width / rect.width)) - dragStartX;
+            offsetY = ((e.clientY - rect.top) * (canvas.height / rect.height)) - dragStartY;
+            renderCanvas();
+        });
+
+        canvas.addEventListener('mouseup', function(e) {
+            isDragging = false;
+            if (!hasMoved && isColorPickerActive && activeImageIndex !== -1 && currentImageObj) {
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
+                const mouseY = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+                const imageX = Math.floor((mouseX - offsetX) / scale);
+                const imageY = Math.floor((mouseY - offsetY) / scale);
+
+                const tempCanvas = document.createElement('canvas'); tempCanvas.width = 1; tempCanvas.height = 1;
+                const tempCtx = tempCanvas.getContext('2d');
+                const activeSource = (showBlocked && blockedCanvasObj) ? blockedCanvasObj : currentImageObj;
+
+                tempCtx.drawImage(activeSource, imageX, imageY, 1, 1, 0, 0, 1, 1);
+                const [r, g, b] = tempCtx.getImageData(0, 0, 1, 1).data;
+
+                updateColorDisplay(r, g, b);
+            }
+        });
+
+        canvas.addEventListener('mouseleave', () => { isDragging = false; });
+    }
+
+    init();
+</script>
+
+</body>
+</html>
